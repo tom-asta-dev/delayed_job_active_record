@@ -55,8 +55,8 @@ module Delayed
 
         def self.reserve_with_scope(ready_scope, worker, now)
           # Optimizations for faster lookups on some common databases
-          case connection.adapter_name
-          when "PostgreSQL"
+          adapter_name = connection.adapter_name
+          if adapter_name == "PostgreSQL" && self.connection.send(:postgresql_version) >= 90000
             # Custom SQL required for PostgreSQL because postgres does not support UPDATE...LIMIT
             # This locks the single record 'FOR UPDATE' in the subquery
             # http://www.postgresql.org/docs/9.0/static/sql-select.html#SQL-FOR-UPDATE-SHARE
@@ -66,7 +66,9 @@ module Delayed
             quoted_table_name = connection.quote_table_name(table_name)
             subquery_sql      = ready_scope.limit(1).lock(true).select("id").to_sql
             reserved          = find_by_sql(["UPDATE #{quoted_table_name} SET locked_at = ?, locked_by = ? WHERE id IN (#{subquery_sql}) RETURNING *", now, worker.name])
-            reserved[0]
+            return reserved[0]
+          end
+          case connection.adapter_name
           when "MySQL", "Mysql2"
             # Removing the millisecond precision from now(time object)
             # MySQL 5.6.4 onwards millisecond precision exists, but the
